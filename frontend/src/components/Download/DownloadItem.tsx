@@ -79,7 +79,9 @@ export default function DownloadItem({ task, preview = false, onPause, onResume,
       )}
 
       <div className="mt-3 grid min-w-0 grid-cols-2 gap-2">
-        {isActive ? (
+        {isActive && task.native ? (
+          <Link to={detailsHref} className="inline-flex min-h-10 items-center justify-center rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300">{t('downloads.package.title')}</Link>
+        ) : isActive ? (
           <button
             type="button"
             onClick={() => onPause(task.id)}
@@ -106,6 +108,8 @@ export default function DownloadItem({ task, preview = false, onPause, onResume,
         <button
           type="button"
           onClick={() => onDelete(task.id)}
+          disabled={Boolean(task.native && isActive)}
+          title={task.native && isActive ? 'Native download cannot be deleted while running' : undefined}
           className="min-h-10 min-w-0 rounded-lg border border-red-200 px-3 py-2 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
         >
           {t('downloads.package.delete')}
