@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import fs from 'fs';
 import { config } from '../config.js';
 import { createNativeTask, finishNativeTask, sanitizeTaskForResponse } from '../services/downloadManager.js';
@@ -10,6 +10,18 @@ import {
 import type { Software } from '../types/index.js';
 
 const router = Router();
+
+type LoginState =
+  | { status: 'pending' }
+  | { status: 'verification_required'; sessionId: string }
+  | { status: 'authenticated'; account: unknown }
+  | { status: 'failed'; error: string };
+const loginJobs = new Map<string, LoginState>();
+function retainLoginJob(jobId: string): void {
+  const timer = setTimeout(() => loginJobs.delete(jobId), 20 * 60_000);
+  timer.unref();
+}
+
 
 // Browser-to-backend Apple credential transport is permissible only with an
 // explicitly configured API access password and TLS at the public entrypoint.
@@ -53,21 +65,55 @@ router.get('/native/accounts', (_req: Request, res: Response) => {
   res.json(listNativeAccounts());
 });
 
-router.post('/native/auth/start', async (req: Request, res: Response) => {
+// Return a job ID immediately: first-time Apple device provisioning can take
+// longer than reverse proxies' normal HTTP request timeouts.
+router.post('/native/auth/start', (req: Request, res: Response) => {
   try {
     const { email, password, store } = req.body as Record<string, unknown>;
     if (typeof email !== 'string' || typeof password !== 'string' || typeof store !== 'string')
       throw new Error('Invalid authentication parameters');
-    res.json(await startNativeLogin(email, password, store));
+    if (!email.trim() || !password || !/^\d{6}$/.test(store))
+      throw new Error('Invalid account or region');
+    const jobId = randomUUID();
+    loginJobs.set(jobId, { status: 'pending' });
+    retainLoginJob(jobId);
+    void startNativeLogin(email, password, store)
+      .then((result) => {
+        if (result.status === 'verification_required') {
+          loginJobs.set(jobId, { status: 'verification_required', sessionId: result.sessionId });
+        } else {
+          loginJobs.set(jobId, { status: 'authenticated', account: result.account });
+        }
+      })
+      .catch((error) => loginJobs.set(jobId, { status: 'failed', error: message(error) }));
+    res.status(202).json({ status: 'pending', jobId });
   } catch (error) { failed(res, error); }
 });
 
-router.post('/native/auth/verify', async (req: Request, res: Response) => {
+router.get('/native/auth/status/:jobId', (req: Request, res: Response) => {
+  const job = loginJobs.get(String(req.params.jobId));
+  if (!job) { res.status(404).json({ error: 'Authentication job expired' }); return; }
+  if (job.status === 'verification_required') {
+    res.json({ status: 'verification_required' }); // never disclose internal session ID
+  } else {
+    res.json(job);
+  }
+});
+
+router.post('/native/auth/verify', (req: Request, res: Response) => {
   try {
-    const { sessionId, code, store } = req.body as Record<string, unknown>;
-    if (typeof sessionId !== 'string' || typeof code !== 'string' || typeof store !== 'string')
+    const { jobId, code, store } = req.body as Record<string, unknown>;
+    if (typeof jobId !== 'string' || typeof code !== 'string' || typeof store !== 'string' ||
+      !/^\d{6}$/.test(code) || !/^\d{6}$/.test(store))
       throw new Error('Invalid verification parameters');
-    res.json(await verifyNativeLogin(sessionId, code, store));
+    const job = loginJobs.get(jobId);
+    if (!job || job.status !== 'verification_required')
+      throw new Error('Verification session unavailable or expired');
+    loginJobs.set(jobId, { status: 'pending' });
+    void verifyNativeLogin(job.sessionId, code, store)
+      .then((result) => loginJobs.set(jobId, { status: 'authenticated', account: result.account }))
+      .catch((error) => loginJobs.set(jobId, { status: 'failed', error: message(error) }));
+    res.status(202).json({ status: 'pending', jobId });
   } catch (error) { failed(res, error); }
 });
 
