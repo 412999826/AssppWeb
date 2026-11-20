@@ -4,6 +4,14 @@ A web-based tool for acquiring and installing iOS apps outside the App Store. Au
 
 ![preview](./resources/preview.png)
 
+
+## Native ipatool v2.8.1 fallback for Apple ID authentication
+
+If the browser login reports `Apple did not respond after 3 attempts (HTTP 204, 404, 204)`, this repository also builds a **separate** ipatool v2.8.1 Linux container using the newer Store AMD protocol. It provides interactive Apple ID authentication and IPA downloads without changing AssppWeb's browser credentials boundary.
+
+This **does not repair AssppWeb's own re-verification button** or share its accounts with the web UI. For setup, commands, supported architectures and security notes, see [ipatool Docker compatibility instructions](docs/ipatool-docker-compat.md).
+
+
 ## Zero-Trust Architecture
 
 AssppWeb uses a zero-trust design where the server **never sees your Apple credentials**. All Apple API communication happens directly in your browser via WebAssembly (libcurl.js with Mbed TLS 1.3). The server only acts as a blind TCP relay (Wisp protocol) and handles IPA compilation from public CDN downloads.

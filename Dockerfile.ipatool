@@ -1,0 +1,36 @@
+# Pinned, standalone ipatool CLI compatibility image.
+# It intentionally does NOT receive credentials from AssppWeb's browser app.
+# The independent container is only used via interactive docker compose run.
+FROM debian:bookworm-slim
+ARG TARGETARCH
+ARG IPATOOL_VERSION=2.8.1
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl libgcc-s1 libstdc++6 libsecret-1-0 \
+  && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+  case "${TARGETARCH}" in \
+    amd64) digest='c5a7d35d98a0ac41fbb9d21c19437c3e6006c6e32556f484d09ed26872f9c283' ;; \
+    arm64) digest='64dc6311acbd92f8165fe382ee86852f520b23355dae65933cb0f60177357116' ;; \
+    *) echo "Unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+  esac; \
+  archive="ipatool-${IPATOOL_VERSION}-linux-${TARGETARCH}.tar.gz"; \
+  curl --fail --location --retry 3 --retry-all-errors --output "/tmp/${archive}" \
+    "https://github.com/majd/ipatool/releases/download/v${IPATOOL_VERSION}/${archive}"; \
+  printf '%s  %s\n' "${digest}" "/tmp/${archive}" | sha256sum --check --status; \
+  mkdir -p /tmp/ipatool-extract; \
+  tar -xzf "/tmp/${archive}" -C /tmp/ipatool-extract; \
+  binary="$(find /tmp/ipatool-extract -type f -name ipatool -print -quit)"; \
+  test -n "${binary}"; \
+  install -m 0755 "${binary}" /usr/local/bin/ipatool; \
+  rm -rf /tmp/ipatool-extract "/tmp/${archive}"; \
+  /usr/local/bin/ipatool --version
+
+# Preserve emulator assets, authentication state, and downloaded packages.
+# Treat the mounted directory as sensitive: it can contain Apple account tokens.
+ENV HOME=/data \
+    XDG_CACHE_HOME=/data/.cache \
+    XDG_CONFIG_HOME=/data/.config
+WORKDIR /data
+VOLUME ["/data"]
+ENTRYPOINT ["/usr/local/bin/ipatool"]
+CMD ["--help"]
