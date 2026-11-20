@@ -5,7 +5,7 @@ import PageContainer from '../Layout/PageContainer';
 import Spinner from '../common/Spinner';
 import { useAccounts } from '../../hooks/useAccounts';
 import { useToastStore } from '../../store/toast';
-import { nativeLogin, nativeVerify, toBrowserAccount } from '../../api/native';
+import { nativeLogin, nativeVerify, nativeAuthStatus, toBrowserAccount } from '../../api/native';
 import { getErrorMessage } from '../../utils/error';
 import { storeIdToCountry } from '../../apple/config';
 
@@ -62,22 +62,36 @@ export default function AccountDetail() {
     setReauthing(true);
     try {
       const store = account.store.split('-')[0];
-      const result = nativeSessionId
+      const started = nativeSessionId
         ? await nativeVerify(nativeSessionId, reauthCode, store)
         : await nativeLogin(account.email, reauthPassword, store);
-      if (result.status === 'verification_required') {
-        setNativeSessionId(result.sessionId);
-        setReauthPassword('');
-        setNeedsCode(true);
-        addToast(t('accounts.detail.code'), 'info');
-        return;
+      const jobId = nativeSessionId || (started.status === 'pending' ? started.jobId : '');
+      if (!jobId) throw new Error('Apple authentication job could not start');
+      for (let attempt = 0; attempt < 360; attempt++) {
+        const status = await nativeAuthStatus(jobId);
+        if (status.status === 'pending') {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          continue;
+        }
+        if (status.status === 'verification_required') {
+          setNativeSessionId(jobId);
+          setReauthPassword('');
+          setNeedsCode(true);
+          addToast(t('accounts.detail.code'), 'info');
+          return;
+        }
+        if (status.status === 'failed') throw new Error(status.error);
+        if (status.status === 'authenticated') {
+          await updateAccount(toBrowserAccount(status.account));
+          setNativeSessionId(null);
+          setNeedsCode(false);
+          setReauthCode('');
+          setReauthPassword('');
+          addToast(t('accounts.detail.reauthSuccess'), 'success');
+          return;
+        }
       }
-      await updateAccount(toBrowserAccount(result.account));
-      setNativeSessionId(null);
-      setNeedsCode(false);
-      setReauthCode('');
-      setReauthPassword('');
-      addToast(t('accounts.detail.reauthSuccess'), 'success');
+      throw new Error('Apple authentication timed out. Please try again.');
     } catch (err) {
       if (nativeSessionId) {
         setNativeSessionId(null);
