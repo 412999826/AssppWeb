@@ -9,8 +9,10 @@ export interface NativeAccount {
   authenticatedAt: string;
 }
 export type NativeAuthResult =
-  | { status: 'verification_required'; sessionId: string }
-  | { status: 'authenticated'; account: NativeAccount };
+  | { status: 'pending'; jobId: string }
+  | { status: 'verification_required' }
+  | { status: 'authenticated'; account: NativeAccount }
+  | { status: 'failed'; error: string };
 
 export function toBrowserAccount(native: NativeAccount): Account {
   const words = (native.name || '').trim().split(/\s+/).filter(Boolean);
@@ -26,8 +28,11 @@ export function toBrowserAccount(native: NativeAccount): Account {
 export function nativeLogin(email: string, password: string, store: string) {
   return apiPost<NativeAuthResult>('/api/native/auth/start', { email, password, store });
 }
-export function nativeVerify(sessionId: string, code: string, store: string) {
-  return apiPost<NativeAuthResult>('/api/native/auth/verify', { sessionId, code, store });
+export function nativeVerify(jobId: string, code: string, store: string) {
+  return apiPost<NativeAuthResult>('/api/native/auth/verify', { jobId, code, store });
+}
+export function nativeAuthStatus(jobId: string) {
+  return apiGet<NativeAuthResult>('/api/native/auth/status/' + encodeURIComponent(jobId));
 }
 export function nativeAccounts() {
   return apiGet<NativeAccount[]>('/api/native/accounts');
