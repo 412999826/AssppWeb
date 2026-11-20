@@ -67,3 +67,20 @@ jobs:
           cache-to: type=gha,mode=max
       - name: Check native CLI is embedded in main image
         run: docker run --rm --entrypoint /usr/local/bin/ipatool assppweb-native-integration:test --version
+
+      - name: Smoke test Node backend and packaged frontend
+        run: |
+          docker run -d --name asspp-native-smoke \
+            -e UNSAFE_DANGEROUSLY_DISABLE_HTTPS_REDIRECT=true \
+            -e DATA_DIR=/data \
+            -p 127.0.0.1:18080:8080 assppweb-native-integration:test
+          for i in $(seq 1 20); do
+            if curl --fail --silent http://127.0.0.1:18080/api/settings >/dev/null; then
+              docker rm -f asspp-native-smoke
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs asspp-native-smoke
+          docker rm -f asspp-native-smoke
+          exit 1
