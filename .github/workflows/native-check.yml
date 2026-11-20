@@ -47,3 +47,23 @@ jobs:
           target: native-ipatool
           platforms: linux/amd64
           push: false
+
+  complete-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build complete integrated AssppWeb Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: assppweb-native-integration:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Check native CLI is embedded in main image
+        run: docker run --rm --entrypoint /usr/local/bin/ipatool assppweb-native-integration:test --version
