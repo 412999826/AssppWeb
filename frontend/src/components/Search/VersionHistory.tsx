@@ -8,6 +8,7 @@ import { useDownloadAction } from '../../hooks/useDownloadAction';
 import { useToastStore } from '../../store/toast';
 import { listVersions } from '../../apple/versionFinder';
 import { getVersionMetadata } from '../../apple/versionLookup';
+import { nativeVersions, nativeVersionMetadata } from '../../api/native';
 import { getErrorMessage } from '../../utils/error';
 import { storeIdToCountry } from '../../apple/config';
 import type { Software, VersionMetadata } from '../../types';
@@ -49,9 +50,14 @@ export default function VersionHistory() {
     if (!account || !app) return;
     setLoading(true);
     try {
-      const result = await listVersions(account, app);
-      setVersions(result.versions);
-      await updateAccount({ ...account, cookies: result.updatedCookies });
+      if (account.backendManaged) {
+        const result = await nativeVersions(account.email, app.id);
+        setVersions(result.versions);
+      } else {
+        const result = await listVersions(account, app);
+        setVersions(result.versions);
+        await updateAccount({ ...account, cookies: result.updatedCookies });
+      }
     } catch (e) {
       addToast(getErrorMessage(e, t('search.versions.loadFailed')), 'error');
     } finally {
@@ -63,9 +69,14 @@ export default function VersionHistory() {
     if (!account || !app || versionMeta[versionId]) return;
     setLoadingMeta((prev) => ({ ...prev, [versionId]: true }));
     try {
-      const result = await getVersionMetadata(account, app, versionId);
-      setVersionMeta((prev) => ({ ...prev, [versionId]: result.metadata }));
-      await updateAccount({ ...account, cookies: result.updatedCookies });
+      if (account.backendManaged) {
+        const metadata = await nativeVersionMetadata(account.email, app.id, versionId);
+        setVersionMeta((prev) => ({ ...prev, [versionId]: metadata }));
+      } else {
+        const result = await getVersionMetadata(account, app, versionId);
+        setVersionMeta((prev) => ({ ...prev, [versionId]: result.metadata }));
+        await updateAccount({ ...account, cookies: result.updatedCookies });
+      }
     } catch {
       // Silently fail for individual version metadata
     } finally {
