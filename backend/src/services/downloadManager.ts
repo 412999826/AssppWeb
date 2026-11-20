@@ -482,3 +482,44 @@ async function startDownload(task: DownloadTask) {
     notifyProgress(task);
   }
 }
+
+
+/** Register a native ipatool download in the existing download/package UI.
+ * ipatool performs license/SINF handling itself; the resulting IPA is complete. */
+export function createNativeTask(software: Software, accountHash: string): DownloadTask {
+  safePathSegment(accountHash, 'accountHash');
+  safePathSegment(software.bundleID, 'bundleID');
+  safePathSegment(software.version || 'latest', 'version');
+  const task: DownloadTask = {
+    id: uuidv4(), software, accountHash, downloadURL: '', sinfs: [],
+    status: 'downloading', progress: 0, speed: '0 B/s',
+    createdAt: new Date().toISOString(),
+  };
+  const dir = path.join(PACKAGES_DIR, safePathSegment(accountHash, 'accountHash'),
+    safePathSegment(software.bundleID, 'bundleID'), safePathSegment(software.version || 'latest', 'version'));
+  fs.mkdirSync(dir, { recursive: true });
+  task.filePath = path.join(dir, task.id + '.ipa');
+  tasks.set(task.id, task);
+  notifyProgress(task);
+  return task;
+}
+
+export function finishNativeTask(task: DownloadTask, error?: Error): void {
+  if (error) {
+    task.status = 'failed';
+    task.error = error.message;
+    if (task.filePath) fs.rmSync(task.filePath, { force: true });
+    task.filePath = undefined;
+    notifyProgress(task);
+    return;
+  }
+  if (!task.filePath || !fs.existsSync(task.filePath) || fs.statSync(task.filePath).size === 0) {
+    finishNativeTask(task, new Error('ipatool did not create an IPA file'));
+    return;
+  }
+  task.status = 'completed';
+  task.progress = 100;
+  task.speed = '0 B/s';
+  persistTasks();
+  notifyProgress(task);
+}
