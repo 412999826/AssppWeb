@@ -35,35 +35,3 @@ jobs:
             ghcr.io/412999826/assppweb:sha-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-  # Independent native CLI fallback: ipatool's Store AMD proof cannot be used
-  # directly by AssppWeb's browser-side auth, so publish a separate image.
-  build-ipatool-cli:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-      - name: Enable multi-platform builds
-        uses: docker/setup-qemu-action@v3
-      - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push ipatool v2.8.1 CLI
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile.ipatool
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ghcr.io/412999826/assppweb-ipatool:2.8.1
-            ghcr.io/412999826/assppweb-ipatool:latest
-            ghcr.io/412999826/assppweb-ipatool:sha-${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
