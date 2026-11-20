@@ -91,14 +91,20 @@ class NativeRunner {
 
   constructor(email: string, args: string[], password?: string, timeoutMs = 12 * 60_000) {
     const { home, secret } = ensureAccountHome(email);
-    const cmd = 'stty -echo; exec /usr/local/bin/ipatool --format json ' + args.map(validArg).join(' ');
-    const env = {
-      ...process.env, HOME: home,
+    const binary = validArg(process.env.NATIVE_IPATOOL_BIN || '/usr/local/bin/ipatool');
+    const cmd = 'stty -echo; exec ' + binary + ' --format json ' + args.map(validArg).join(' ');
+    // Do not leak backend access tokens or deployment secrets into ipatool's env.
+    const env: NodeJS.ProcessEnv = {
+      PATH: '/usr/local/bin:/usr/bin:/bin',
+      HOME: home, LANG: 'C.UTF-8',
       XDG_STATE_HOME: path.join(home, '.local', 'state'),
       XDG_DATA_HOME: path.join(home, '.local', 'share'),
       XDG_CONFIG_HOME: path.join(home, '.config'),
       TERM: 'dumb',
     };
+    for (const key of ['HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy']) {
+      if (process.env[key]) env[key] = process.env[key];
+    }
     this.codePrompt = new Promise((resolve) => { this.codeResolver = resolve; });
     this.process = spawn('/usr/bin/script', ['-q', '-e', '-f', '-c', cmd, '/dev/null'], {
       env, cwd: home, stdio: ['pipe', 'pipe', 'pipe'],
