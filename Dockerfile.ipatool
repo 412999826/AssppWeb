@@ -19,7 +19,7 @@ RUN set -eux; \
   printf '%s  %s\n' "${digest}" "/tmp/${archive}" | sha256sum --check --status; \
   mkdir -p /tmp/ipatool-extract; \
   tar -xzf "/tmp/${archive}" -C /tmp/ipatool-extract; \
-  binary="$(find /tmp/ipatool-extract -type f -name ipatool -print -quit)"; \
+  binary="$(find /tmp/ipatool-extract -type f -name 'ipatool*' -print -quit)"; \
   test -n "${binary}"; \
   install -m 0755 "${binary}" /usr/local/bin/ipatool; \
   rm -rf /tmp/ipatool-extract "/tmp/${archive}"; \
