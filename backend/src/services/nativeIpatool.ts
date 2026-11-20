@@ -80,7 +80,8 @@ function safeError(): Error {
 class NativeRunner {
   private process: ChildProcessWithoutNullStreams;
   private output = '';
-  private seen = new Set<string>();
+  private promptOffsets = new Map<string, number>();
+  private totalChars = 0;
   private waitingForCode = false;
   private closed = false;
   private codeResolver!: () => void;
@@ -106,7 +107,10 @@ class NativeRunner {
       if (!this.closed) this.process.stdin.write(value + '\n');
     };
     const onOutput = (data: Buffer) => {
-      this.output = (this.output + data.toString('utf8')).slice(-65_536);
+      const fragment = data.toString('utf8');
+      this.totalChars += fragment.length;
+      this.output = (this.output + fragment).slice(-65_536);
+      const origin = this.totalChars - this.output.length;
       const prompts: [string, RegExp, string | undefined][] = [
         ['email', /enter Apple ID \(email address or phone number\):\s*$/i, email],
         ['password', /enter password:\s*$/i, password],
@@ -114,8 +118,11 @@ class NativeRunner {
         ['code', /enter 2FA code:\s*$/i, undefined],
       ];
       for (const [key, pattern, value] of prompts) {
-        if (this.seen.has(key) || !pattern.test(this.output)) continue;
-        this.seen.add(key);
+        const match = pattern.exec(this.output);
+        if (!match) continue;
+        const position = origin + match.index;
+        if (this.promptOffsets.get(key) === position) continue;
+        this.promptOffsets.set(key, position);
         if (key === 'code') {
           this.waitingForCode = true;
           this.codeResolver();
