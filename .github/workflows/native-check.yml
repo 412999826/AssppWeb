@@ -25,6 +25,9 @@ jobs:
         run: |
           npm ci
           npm run build
+      - name: Verify native PTY login, 2FA and keychain flow
+        working-directory: backend
+        run: npm test -- src/services/nativeIpatool.test.ts
       - name: Build frontend bundle
         working-directory: frontend
         run: |
