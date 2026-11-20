@@ -6,7 +6,7 @@ import Spinner from '../common/Spinner';
 import { useAccounts } from '../../hooks/useAccounts';
 import { useToastStore } from '../../store/toast';
 import { countryCodeMap } from '../../apple/config';
-import { nativeLogin, nativeVerify, toBrowserAccount } from '../../api/native';
+import { nativeLogin, nativeVerify, nativeAuthStatus, toBrowserAccount } from '../../api/native';
 import { getErrorMessage } from '../../utils/error';
 
 export default function AddAccountForm() {
@@ -28,22 +28,36 @@ export default function AddAccountForm() {
     try {
       const store = countryCodeMap[country];
       if (!store) throw new Error('Select an App Store region');
-      const result = sessionId
+      const started = sessionId
         ? await nativeVerify(sessionId, code, store)
         : await nativeLogin(email.trim(), password, store);
-      if (result.status === 'verification_required') {
-        setSessionId(result.sessionId);
-        setCode('');
-        setPassword('');
-        addToast(t('accounts.addForm.codeHelp'), 'info');
-        return;
+      const jobId = sessionId || (started.status === 'pending' ? started.jobId : '');
+      if (!jobId) throw new Error('Apple authentication job could not start');
+      for (let attempt = 0; attempt < 360; attempt++) {
+        const status = await nativeAuthStatus(jobId);
+        if (status.status === 'pending') {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          continue;
+        }
+        if (status.status === 'verification_required') {
+          setSessionId(jobId);
+          setCode('');
+          setPassword('');
+          addToast(t('accounts.addForm.codeHelp'), 'info');
+          return;
+        }
+        if (status.status === 'failed') throw new Error(status.error);
+        if (status.status === 'authenticated') {
+          await addAccount(toBrowserAccount(status.account));
+          setPassword('');
+          setCode('');
+          setSessionId(null);
+          addToast(t('accounts.addForm.addSuccess'), 'success');
+          navigate('/accounts');
+          return;
+        }
       }
-      await addAccount(toBrowserAccount(result.account));
-      setPassword('');
-      setCode('');
-      setSessionId(null);
-      addToast(t('accounts.addForm.addSuccess'), 'success');
-      navigate('/accounts');
+      throw new Error('Apple authentication timed out. Please try signing in again.');
     } catch (err) {
       if (sessionId) {
         setSessionId(null);
