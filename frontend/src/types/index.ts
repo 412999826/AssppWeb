@@ -30,6 +30,7 @@ export interface Cookie {
 }
 
 export interface Account {
+  backendManaged?: boolean;
   email: string;
   password: string;
   appleId: string;
