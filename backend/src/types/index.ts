@@ -25,7 +25,6 @@ export interface Sinf {
 }
 
 export interface DownloadTask {
-  native?: boolean;
   id: string;
   software: Software;
   accountHash: string;

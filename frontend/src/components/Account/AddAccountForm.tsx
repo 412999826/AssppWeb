@@ -1,71 +1,59 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import PageContainer from '../Layout/PageContainer';
 import Spinner from '../common/Spinner';
 import { useAccounts } from '../../hooks/useAccounts';
 import { useToastStore } from '../../store/toast';
-import { countryCodeMap } from '../../apple/config';
-import { nativeLogin, nativeVerify, nativeAuthStatus, toBrowserAccount } from '../../api/native';
+import { Authenticator, AuthenticationError } from '../../apple/authenticate';
 import { getErrorMessage } from '../../utils/error';
+import { generateDeviceId } from '../../apple/config';
+import type { AuthRetry } from '../../apple/authenticate';
 
 export default function AddAccountForm() {
   const navigate = useNavigate();
   const { addAccount } = useAccounts();
   const { t } = useTranslation();
   const addToast = useToastStore((s) => s.addToast);
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
-  const [country, setCountry] = useState('US');
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [deviceId, setDeviceId] = useState(() => generateDeviceId());
+  const [needsCode, setNeedsCode] = useState(false);
+  const authenticator = useRef<Authenticator | null>(null);
   const [loading, setLoading] = useState(false);
-  const field = 'block min-h-11 w-full rounded-xl bg-gray-100 px-3 py-2 text-base text-gray-900 dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-blue-500/40';
+  const [retry, setRetry] = useState<AuthRetry | null>(null);
+  const inputClassName =
+    'block min-h-11 w-full min-w-0 max-w-full rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white';
 
-  async function handleSubmit(event: React.FormEvent) {
-    event.preventDefault();
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
     setLoading(true);
+
     try {
-      const store = countryCodeMap[country];
-      if (!store) throw new Error('Select an App Store region');
-      const started = sessionId
-        ? await nativeVerify(sessionId, code, store)
-        : await nativeLogin(email.trim(), password, store);
-      const jobId = sessionId || (started.status === 'pending' ? started.jobId : '');
-      if (!jobId) throw new Error('Apple authentication job could not start');
-      for (let attempt = 0; attempt < 360; attempt++) {
-        const status = await nativeAuthStatus(jobId);
-        if (status.status === 'pending') {
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-          continue;
-        }
-        if (status.status === 'verification_required') {
-          setSessionId(jobId);
-          setCode('');
-          setPassword('');
-          addToast(t('accounts.addForm.codeHelp'), 'info');
-          return;
-        }
-        if (status.status === 'failed') throw new Error(status.error);
-        if (status.status === 'authenticated') {
-          await addAccount(toBrowserAccount(status.account));
-          setPassword('');
-          setCode('');
-          setSessionId(null);
-          addToast(t('accounts.addForm.addSuccess'), 'success');
-          navigate('/accounts');
-          return;
-        }
-      }
-      throw new Error('Apple authentication timed out. Please try signing in again.');
+      const cleanedDeviceId = deviceId.replace(/[: ]/g, '');
+      setDeviceId(cleanedDeviceId);
+
+      if (!needsCode || !authenticator.current) authenticator.current = new Authenticator(cleanedDeviceId);
+      const account = await authenticator.current.authenticate(
+        email,
+        password,
+        needsCode && code ? code : undefined,
+        setRetry,
+      );
+      await addAccount(account);
+      addToast(t('accounts.addForm.addSuccess'), 'success');
+      navigate('/accounts');
     } catch (err) {
-      if (sessionId) {
-        setSessionId(null);
-        setCode('');
-        addToast('Verification did not finish. Please begin a new sign-in.', 'error');
+      if (err instanceof AuthenticationError && err.codeRequired) {
+        setNeedsCode(true);
+        addToast(err.message, 'error');
+      } else {
+        addToast(getErrorMessage(err, t('accounts.addForm.authFailed')), 'error');
       }
-      addToast(getErrorMessage(err, t('accounts.addForm.authFailed')), 'error');
     } finally {
+      setRetry(null);
       setLoading(false);
     }
   }
@@ -75,54 +63,114 @@ export default function AddAccountForm() {
       <div className="max-w-2xl">
         <form onSubmit={handleSubmit} className="space-y-6">
           <section className="space-y-5 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-black/5 dark:bg-gray-900 dark:ring-white/10 sm:p-6">
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Apple authentication is performed on your private Docker server with ipatool. 
-              Configure ACCESS_PASSWORD, NATIVE_APPLE_AUTH=true and HTTPS before using this feature.
-              Your password is not saved in the browser account record.
-            </p>
             <div>
-              <label htmlFor="email" className="mb-1 block text-sm font-medium">{t('accounts.addForm.email')}</label>
-              <input id="email" type="text" autoComplete="username" required disabled={loading || Boolean(sessionId)}
-                value={email} onChange={(e) => setEmail(e.target.value)} className={field} />
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                {t('accounts.addForm.email')}
+              </label>
+              <input
+                id="email"
+                type="text"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                disabled={loading}
+                placeholder={t('accounts.addForm.emailPlaceholder')}
+                className={inputClassName}
+              />
             </div>
-            {!sessionId ? (
-              <>
-                <div>
-                  <label htmlFor="password" className="mb-1 block text-sm font-medium">{t('accounts.addForm.password')}</label>
-                  <input id="password" type="password" autoComplete="current-password" required disabled={loading}
-                    value={password} onChange={(e) => setPassword(e.target.value)} className={field} />
-                </div>
-                <div>
-                  <label htmlFor="store-region" className="mb-1 block text-sm font-medium">{t('accounts.detail.storeRegion')}</label>
-                  <select id="store-region" className={field} value={country} disabled={loading}
-                    onChange={(e) => setCountry(e.target.value)}>
-                    {Object.keys(countryCodeMap).sort().map((value) => (
-                      <option key={value} value={value}>{t('countries.' + value, value)} ({value})</option>
-                    ))}
-                  </select>
-                  <p className="mt-1 text-xs text-gray-500">Select the country or region of your Apple App Store account.</p>
-                </div>
-              </>
-            ) : (
+
+            <div>
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                {t('accounts.addForm.password')}
+              </label>
+              <input
+                id="password"
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={loading}
+                className={inputClassName}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="deviceId" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                {t('accounts.addForm.deviceId')}
+              </label>
+              <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
+                <input
+                  id="deviceId"
+                  type="text"
+                  required
+                  value={deviceId}
+                  onChange={(e) => setDeviceId(e.target.value)}
+                  disabled={loading || needsCode}
+                  className={`${inputClassName} min-w-0 flex-1 font-mono`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setDeviceId(generateDeviceId())}
+                  disabled={loading || needsCode}
+                  className="min-h-11 w-full shrink-0 whitespace-normal rounded-full bg-gray-100 px-4 py-2 text-sm font-semibold text-gray-600 transition-colors hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:whitespace-nowrap dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                >
+                  {t('accounts.addForm.randomize')}
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{t('accounts.addForm.deviceIdHelp')}</p>
+            </div>
+
+            {needsCode && (
               <div>
-                <label htmlFor="verification" className="mb-1 block text-sm font-medium">{t('accounts.addForm.code')}</label>
-                <input id="verification" className={field} type="text" inputMode="numeric" pattern="[0-9]{6}"
-                  autoComplete="one-time-code" maxLength={6} required value={code} disabled={loading}
-                  onChange={(e) => setCode(e.target.value)} autoFocus />
+                <label htmlFor="code" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  {t('accounts.addForm.code')}
+                </label>
+                <input
+                  id="code"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={6}
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  disabled={loading}
+                  placeholder={t('accounts.addForm.codePlaceholder')}
+                  className={inputClassName}
+                  autoFocus
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{t('accounts.addForm.codeHelp')}</p>
               </div>
             )}
           </section>
-          <div className="flex flex-wrap gap-3">
-            <button type="submit" disabled={loading}
-              className="flex min-h-11 items-center gap-2 rounded-full bg-blue-600 px-6 py-2 text-white disabled:opacity-50">
+
+          <div className="grid grid-cols-1 gap-3 sm:flex sm:flex-wrap sm:items-center">
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex min-h-11 items-center justify-center gap-2 rounded-full bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
               {loading && <Spinner />}
-              {sessionId ? t('accounts.addForm.verify') : t('accounts.addForm.signIn')}
+              {needsCode ? t('accounts.addForm.verify') : t('accounts.addForm.signIn')}
             </button>
-            <button type="button" onClick={() => navigate('/accounts')} disabled={loading}
-              className="min-h-11 rounded-full bg-gray-200 px-6 py-2 text-gray-700 dark:bg-gray-800 dark:text-gray-200">
+            <button
+              type="button"
+              onClick={() => navigate('/accounts')}
+              disabled={loading}
+              className="min-h-11 rounded-full bg-gray-200 px-6 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-300 disabled:opacity-50 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+            >
               {t('accounts.addForm.cancel')}
             </button>
           </div>
+          {retry && (
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              {t('accounts.addForm.retrying', {
+                status: retry.status,
+                seconds: Math.round(retry.delayMs / 1000),
+                attempt: retry.attempt,
+                attempts: retry.attempts,
+              })}
+            </p>
+          )}
         </form>
       </div>
     </PageContainer>

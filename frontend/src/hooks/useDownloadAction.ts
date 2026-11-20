@@ -6,7 +6,6 @@ import { getDownloadInfo } from '../apple/download';
 import { purchaseApp } from '../apple/purchase';
 import { authenticate } from '../apple/authenticate';
 import { apiPost, apiGet } from '../api/client';
-import { nativeDownload, nativePurchase } from '../api/native';
 import { accountHash } from '../utils/account';
 import { getErrorMessage } from '../utils/error';
 import { getAccountContext } from '../utils/toast';
@@ -47,13 +46,6 @@ export function useDownloadAction() {
       // Settings fetch failed — backend will still enforce the limit
     }
 
-    if (account.backendManaged) {
-      await nativeDownload(account.email, app, versionId);
-      fetchTasks();
-      addToast(t('toast.msg', { appName, ...ctx }), 'info', t('toast.title.downloadStarted'));
-      return;
-    }
-
     const { output, updatedCookies } = await getDownloadInfo(account, app, versionId);
     await updateAccount({ ...account, cookies: updatedCookies });
     const hash = await accountHash(account);
@@ -74,16 +66,6 @@ export function useDownloadAction() {
   async function acquireLicense(account: Account, app: Software) {
     const ctx = getAccountContext(account, t);
     const appName = app.name;
-
-    if (account.backendManaged) {
-      const result = await nativePurchase(account.email, app.id);
-      addToast(
-        t('toast.msg', { appName, ...ctx }),
-        'success',
-        result.alreadyOwned ? t('toast.title.licenseOwned') : t('toast.title.licenseSuccess'),
-      );
-      return;
-    }
 
     // Silently renew the password token before purchasing.
     // This prevents "token expired" (2034/2042) errors that would

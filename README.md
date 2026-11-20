@@ -4,20 +4,6 @@ A web-based tool for acquiring and installing iOS apps outside the App Store. Au
 
 ![preview](./resources/preview.png)
 
-
-## Native Apple ID authentication (private Docker deployments)
-
-The AssppWeb account login and re-verification pages can now use the pinned
-**ipatool v2.8.1** native authentication inside this web server. Accounts migrated
-to this backend session use the same authentication for downloads, purchases,
-and older App Store versions.
-
-**This changes the security boundary:** the Docker backend receives Apple
-account credentials and stores the ipatool account keychain. Use your own
-trusted HTTPS instance, and set `ACCESS_PASSWORD` and `NATIVE_APPLE_AUTH=true`.
-For details, [read the backend authentication migration guide](docs/native-auth-backend.md).
-
-
 ## Zero-Trust Architecture
 
 AssppWeb uses a zero-trust design where the server **never sees your Apple credentials**. All Apple API communication happens directly in your browser via WebAssembly (libcurl.js with Mbed TLS 1.3). The server only acts as a blind TCP relay (Wisp protocol) and handles IPA compilation from public CDN downloads.
