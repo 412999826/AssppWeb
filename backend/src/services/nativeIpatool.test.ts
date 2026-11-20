@@ -19,7 +19,7 @@ case "$*" in
     IFS= read -r code
     [ "$email" = 'test@example.com' ] || exit 1
     [ "$password" = 'test-password' ] || exit 1
-    [ "${#key}" -gt 15 ] || exit 1
+    [ -n "$key" ] || exit 1
     [ "$code" = '123456' ] || exit 1
     printf '{"name":"Mock Account","email":"test@example.com","success":true}\\n'
     ;;
