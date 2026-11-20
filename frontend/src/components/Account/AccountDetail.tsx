@@ -1,14 +1,14 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import PageContainer from '../Layout/PageContainer';
 import Spinner from '../common/Spinner';
 import { useAccounts } from '../../hooks/useAccounts';
 import { useToastStore } from '../../store/toast';
-import { Authenticator, AuthenticationError } from '../../apple/authenticate';
+import { nativeLogin, nativeVerify, toBrowserAccount } from '../../api/native';
 import { getErrorMessage } from '../../utils/error';
 import { storeIdToCountry } from '../../apple/config';
-import type { AuthRetry } from '../../apple/authenticate';
+
 
 export default function AccountDetail() {
   const { email } = useParams<{ email: string }>();
@@ -19,10 +19,11 @@ export default function AccountDetail() {
 
   const [showDelete, setShowDelete] = useState(false);
   const [reauthing, setReauthing] = useState(false);
-  const [reauthRetry, setReauthRetry] = useState<AuthRetry | null>(null);
+  const [reauthPassword, setReauthPassword] = useState('');
+  const [nativeSessionId, setNativeSessionId] = useState<string | null>(null);
   const [reauthCode, setReauthCode] = useState('');
   const [needsCode, setNeedsCode] = useState(false);
-  const authenticator = useRef<Authenticator | null>(null);
+
 
   useEffect(() => {
     loadAccounts();
@@ -54,30 +55,37 @@ export default function AccountDetail() {
 
   async function handleReauth() {
     if (!account) return;
+    if (!nativeSessionId && !reauthPassword) {
+      addToast('Enter the Apple ID password to re-authenticate on your server.', 'error');
+      return;
+    }
     setReauthing(true);
-
     try {
-      if (!needsCode || !authenticator.current)
-        authenticator.current = new Authenticator(account.deviceIdentifier, account.cookies);
-      const updated = await authenticator.current.authenticate(
-        account.email,
-        account.password,
-        needsCode && reauthCode ? reauthCode : undefined,
-        setReauthRetry,
-      );
-      await updateAccount(updated);
+      const store = account.store.split('-')[0];
+      const result = nativeSessionId
+        ? await nativeVerify(nativeSessionId, reauthCode, store)
+        : await nativeLogin(account.email, reauthPassword, store);
+      if (result.status === 'verification_required') {
+        setNativeSessionId(result.sessionId);
+        setReauthPassword('');
+        setNeedsCode(true);
+        addToast(t('accounts.detail.code'), 'info');
+        return;
+      }
+      await updateAccount(toBrowserAccount(result.account));
+      setNativeSessionId(null);
       setNeedsCode(false);
       setReauthCode('');
+      setReauthPassword('');
       addToast(t('accounts.detail.reauthSuccess'), 'success');
     } catch (err) {
-      if (err instanceof AuthenticationError && err.codeRequired) {
-        setNeedsCode(true);
-        addToast(err.message, 'error');
-      } else {
-        addToast(getErrorMessage(err, t('accounts.detail.reauthFailed')), 'error');
+      if (nativeSessionId) {
+        setNativeSessionId(null);
+        setNeedsCode(false);
+        setReauthCode('');
       }
+      addToast(getErrorMessage(err, t('accounts.detail.reauthFailed')), 'error');
     } finally {
-      setReauthRetry(null);
       setReauthing(false);
     }
   }
@@ -108,6 +116,19 @@ export default function AccountDetail() {
             {account.pod && <DetailRow label={t('accounts.detail.pod')} value={account.pod} />}
           </dl>
         </section>
+
+        {!needsCode && (
+          <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-black/5 dark:bg-gray-900 dark:ring-white/10 sm:p-6">
+            <label htmlFor="native-password" className="mb-1 block text-sm font-medium">
+              {t('accounts.addForm.password')} (backend ipatool)
+            </label>
+            <input id="native-password" type="password" autoComplete="current-password" value={reauthPassword}
+              onChange={(e) => setReauthPassword(e.target.value)} disabled={reauthing}
+              className="min-h-11 w-full rounded-xl bg-gray-100 px-3 py-2 text-base dark:bg-gray-800" />
+            <p className="mt-2 text-xs text-gray-500">Your password is sent over HTTPS to your private Docker server
+              for the Apple authentication request. It is not saved to IndexedDB after verification.</p>
+          </section>
+        )}
 
         {needsCode && (
           <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-black/5 dark:bg-gray-900 dark:ring-white/10 sm:p-6">
@@ -140,16 +161,7 @@ export default function AccountDetail() {
           </section>
         )}
 
-        {reauthRetry && (
-          <p className="text-sm text-gray-600 dark:text-gray-400">
-            {t('accounts.addForm.retrying', {
-              status: reauthRetry.status,
-              seconds: Math.round(reauthRetry.delayMs / 1000),
-              attempt: reauthRetry.attempt,
-              attempts: reauthRetry.attempts,
-            })}
-          </p>
-        )}
+
 
         <div className="flex flex-wrap items-center gap-3">
           <button
