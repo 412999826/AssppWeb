@@ -78,6 +78,7 @@ function persistTasks() {
       downloadURL: '',
       sinfs: [],
       status: t.status,
+      native: t.native,
       progress: t.progress,
       speed: t.speed,
       filePath: t.filePath,
@@ -280,6 +281,7 @@ export function getTask(id: string): DownloadTask | undefined {
 export function deleteTask(id: string): boolean {
   const task = tasks.get(id);
   if (!task) return false;
+  if (task.native && task.status === 'downloading') return false;
 
   // Abort if downloading
   const controller = abortControllers.get(id);
@@ -322,7 +324,7 @@ export function deleteTask(id: string): boolean {
 
 export function pauseTask(id: string): boolean {
   const task = tasks.get(id);
-  if (!task || task.status !== 'downloading') return false;
+  if (!task || task.native || task.status !== 'downloading') return false;
 
   const controller = abortControllers.get(id);
   if (controller) {
@@ -342,7 +344,7 @@ export function pauseTask(id: string): boolean {
 
 export function resumeTask(id: string): boolean {
   const task = tasks.get(id);
-  if (!task || task.status !== 'paused') return false;
+  if (!task || task.native || task.status !== 'paused') return false;
 
   startDownload(task);
   return true;
@@ -491,7 +493,7 @@ export function createNativeTask(software: Software, accountHash: string): Downl
   safePathSegment(software.bundleID, 'bundleID');
   safePathSegment(software.version || 'latest', 'version');
   const task: DownloadTask = {
-    id: uuidv4(), software, accountHash, downloadURL: '', sinfs: [],
+    id: uuidv4(), software, accountHash, downloadURL: '', sinfs: [], native: true,
     status: 'downloading', progress: 0, speed: '0 B/s',
     createdAt: new Date().toISOString(),
   };
