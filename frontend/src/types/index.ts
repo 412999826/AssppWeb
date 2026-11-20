@@ -30,6 +30,7 @@ export interface Cookie {
 }
 
 export interface Account {
+  backendManaged?: boolean;
   email: string;
   password: string;
   appleId: string;
@@ -62,6 +63,7 @@ export interface VersionMetadata {
 }
 
 export interface DownloadTask {
+  native?: boolean;
   id: string;
   software: Software;
   accountHash: string;

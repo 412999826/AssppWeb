@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { openDB, type IDBPDatabase } from 'idb';
 import type { Account } from '../types';
+import { nativeAccounts, toBrowserAccount } from '../api/native';
+import { apiDelete } from '../api/client';
 
 const DB_NAME = 'asspp-accounts';
 const STORE_NAME = 'accounts';
@@ -36,7 +38,21 @@ export const useAccountsStore = create<AccountsState>((set, get) => ({
   loadAccounts: async () => {
     set({ loading: true });
     const db = await getDB();
-    const accounts = await db.getAll(STORE_NAME);
+    let accounts = await db.getAll(STORE_NAME) as Account[];
+    try {
+      const remote = await nativeAccounts();
+      const remoteEmails = new Set(remote.map((a) => a.email));
+      for (const value of accounts.filter((a) => a.backendManaged && !remoteEmails.has(a.email))) {
+        await db.delete(STORE_NAME, value.email);
+      }
+      for (const item of remote) {
+        await db.put(STORE_NAME, toBrowserAccount(item));
+      }
+      accounts = await db.getAll(STORE_NAME) as Account[];
+    } catch {
+      // Login access token may not be available at startup. Local accounts
+      // remain readable until the user unlocks the server.
+    }
     set({ accounts, loading: false });
   },
 
@@ -49,6 +65,10 @@ export const useAccountsStore = create<AccountsState>((set, get) => ({
   },
 
   removeAccount: async (email: string) => {
+    const existing = get().accounts.find((a) => a.email === email);
+    if (existing?.backendManaged) {
+      await apiDelete('/api/native/accounts/' + encodeURIComponent(email));
+    }
     const db = await getDB();
     await db.delete(STORE_NAME, email);
     set({ accounts: get().accounts.filter((a) => a.email !== email) });
