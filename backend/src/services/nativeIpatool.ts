@@ -153,7 +153,9 @@ class NativeRunner {
         clearTimeout(this.timer);
         if (code !== 0) { reject(safeError()); return; }
         const records = this.output.split(/[\r\n]+/).map((line) => {
-          try { return JSON.parse(line.trim()) as NativeOutput; } catch { return null; }
+          const opening = line.indexOf('{');
+          if (opening < 0) return null;
+          try { return JSON.parse(line.slice(opening).trim()) as NativeOutput; } catch { return null; }
         }).filter((record): record is NativeOutput => record !== null);
         const result = [...records].reverse().find((record) => record.success === true);
         if (!result) reject(new Error('ipatool did not report a successful result'));
