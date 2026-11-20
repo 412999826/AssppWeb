@@ -19,6 +19,12 @@ It is not a standalone ipatool CLI shortcut.
    unlock passphrase is also stored server-side, with owner-only filesystem
    permissions. Volume encryption and limited backups are recommended.
 4. Keep `/data` persistent; it also contains the device-provisioning state.
+   Native ipatool derives its Apple device identity from the container's network
+   MAC address. Docker may assign a new MAC address when the container is
+   recreated. If you use a dedicated Docker bridge network, consider assigning
+   the service a **unique, fixed** `mac_address` in Compose to keep that identity
+   stable. Choose an address that does not conflict with anything else on that
+   network; do not copy another container's MAC address.
    Do not expose this directory over public file shares.
 5. This functionality is opt-in and is blocked when `ACCESS_PASSWORD` is
    absent. Do not disable the HTTPS redirect when credentials are submitted.
